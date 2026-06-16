@@ -4,8 +4,6 @@ services:
     build: .
     ports:
       - "8000:8000" # 🔓 Host의 스프링이 찌를 수 있도록 포트 개방
-    depends_on:
-      - qdrant-db
     restart: always
 
   qdrant:
