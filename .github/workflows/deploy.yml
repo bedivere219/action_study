@@ -1,0 +1,51 @@
+name: FastAPI Deploy with Docker Compose
+
+on:
+  push:
+    branches: [ "master" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+    # 1. GitHub 저장소에서 Python/FastAPI 코드 체크아웃
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2. 변경된 최신 소스 코드를 GCP Debian VM으로 전송 (SCP)
+    # 별도의 빌드 산출물이 없으므로, 프로젝트 전체 코드를 서버의 app 디렉토리로 동기화합니다.
+    - name: Deliver Source Code via SSH
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.GCP_HOST }}
+        username: ${{ secrets.GCP_USERNAME }}
+        key: ${{ secrets.GCP_SSH_KEY }}
+        source: "./*"
+        target: "~/api_py"
+
+    # 3. GCP Debian VM에서 FastAPI 서비스만 타겟팅하여 빌드 및 재구동 (SSH)
+    - name: Execute remote SSH commands
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.GCP_HOST }}
+        username: ${{ secrets.GCP_USERNAME }}
+        key: ${{ secrets.GCP_SSH_KEY }}
+        script: |
+          cd ~/api_py
+          
+          echo "🐳 1. FastAPI 서비스 이미지를 새로 빌드합니다."
+          # docker compose build 뒤에 docker-compose.yml에 명시된 fastapi 서비스명을 적어줍니다.
+          sudo docker compose build fastapi
+          
+          echo "🚀 2. 기존 fastapi 컨테이너를 중지하고 최신 빌드본으로 교체합니다. (백그라운드 -d)"
+          # --no-deps 옵션을 주면 qdrant 같은 연존된 다른 서비스는 건드리지 않고 fastapi만 재구동합니다.
+          sudo docker compose up -d --no-deps fastapi
+          
+          echo "🧹 3. 사용되지 않는 구형 이미지(Dangling images)를 정리합니다."
+          sudo docker image prune -f
+          
+          echo "✅ 배포가 성공적으로 완료되었습니다!"
